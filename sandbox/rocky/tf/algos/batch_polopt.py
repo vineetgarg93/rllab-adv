@@ -6,6 +6,7 @@ from sandbox.rocky.tf.policies.base import Policy
 import tensorflow as tf
 from sandbox.rocky.tf.samplers.batch_sampler import BatchSampler
 from sandbox.rocky.tf.samplers.vectorized_sampler import VectorizedSampler
+from copy import deepcopy as copy
 
 
 class BatchPolopt(RLAlgorithm):
@@ -17,8 +18,10 @@ class BatchPolopt(RLAlgorithm):
     def __init__(
             self,
             env,
-            policy,
-            baseline,
+            pro_policy,
+            pro_baseline,
+            adv_policy,
+            adv_baseline,
             scope=None,
             n_itr=500,
             start_itr=0,
@@ -36,6 +39,7 @@ class BatchPolopt(RLAlgorithm):
             sampler_cls=None,
             sampler_args=None,
             force_batch_sampler=False,
+            is_protagonist=True,
             **kwargs
     ):
         """
@@ -60,8 +64,10 @@ class BatchPolopt(RLAlgorithm):
         :return:
         """
         self.env = env
-        self.policy = policy
-        self.baseline = baseline
+        self.pro_policy = pro_policy
+        self.pro_baseline = pro_baseline
+        self.adv_policy = adv_policy
+        self.adv_baseline = adv_baseline
         self.scope = scope
         self.n_itr = n_itr
         self.start_itr = start_itr
@@ -76,6 +82,7 @@ class BatchPolopt(RLAlgorithm):
         self.store_paths = store_paths
         self.whole_paths = whole_paths
         self.fixed_horizon = fixed_horizon
+        self.is_protagonist = is_protagonist
         if sampler_cls is None:
             if self.policy.vectorized and not force_batch_sampler:
                 sampler_cls = VectorizedSampler
@@ -84,6 +91,13 @@ class BatchPolopt(RLAlgorithm):
         if sampler_args is None:
             sampler_args = dict()
         self.sampler = sampler_cls(self, **sampler_args)
+        if self.is_protagonist==True:
+            self.policy = self.pro_policy
+            self.baseline = self.pro_baseline
+        else:
+            self.policy = self.adv_policy
+            self.baseline = self.adv_baseline
+        self.start_worker()
         self.init_opt()
 
     def start_worker(self):
@@ -102,6 +116,7 @@ class BatchPolopt(RLAlgorithm):
 
     def train(self):
         with tf.Session() as sess:
+            self.rews = []
             sess.run(tf.initialize_all_variables())
             self.start_worker()
             start_time = time.time()
@@ -109,7 +124,9 @@ class BatchPolopt(RLAlgorithm):
                 itr_start_time = time.time()
                 with logger.prefix('itr #%d | ' % itr):
                     logger.log("Obtaining samples...")
-                    paths = self.obtain_samples(itr)
+                    # paths = self.obtain_samples(itr)
+                    all_paths = self.sampler.obtain_samples(itr)
+                    paths = self.get_agent_paths(all_paths, is_protagonist=self.is_protagonist)
                     logger.log("Processing samples...")
                     samples_data = self.process_samples(itr, paths)
                     logger.log("Logging diagnostics...")
@@ -125,12 +142,39 @@ class BatchPolopt(RLAlgorithm):
                     logger.record_tabular('Time', time.time() - start_time)
                     logger.record_tabular('ItrTime', time.time() - itr_start_time)
                     logger.dump_tabular(with_prefix=False)
+                    self.rews.append(self.get_average_reward(paths))
                     if self.plot:
                         self.update_plot()
                         if self.pause_for_plot:
                             input("Plotting evaluation run: Press Enter to "
                                   "continue...")
         self.shutdown_worker()
+
+    
+    def get_agent_paths(self, paths, is_protagonist=True):
+        cur_paths = copy(paths)
+        for p in cur_paths:
+            if is_protagonist==True:
+                p['actions']=p.pop('pro_actions')
+                del p['adv_actions']
+                p['agent_infos']=p.pop('pro_agent_infos')
+                del p['adv_agent_infos']
+            else:
+                alpha = -1.0
+                p['actions']=p.pop('adv_actions')
+                del p['pro_actions']
+                p['rewards']=alpha*p['rewards']
+                p['agent_infos']=p.pop('adv_agent_infos')
+                del p['pro_agent_infos']
+        return cur_paths
+
+
+    def get_average_reward(self, paths):
+        sum_r = 0.0
+        for p in paths:
+            sum_r +=p['rewards'].sum()
+        return sum_r/len(paths)
+
 
     def log_diagnostics(self, paths):
         self.env.log_diagnostics(paths)

@@ -50,48 +50,64 @@ class VectorizedSampler(BaseSampler):
         process_time = 0
 
         policy = self.algo.policy
+
+        pro_policy = self.algo.pro_policy
+        adv_policy = self.algo.adv_policy
+
         import time
         while n_samples < self.algo.batch_size:
             t = time.time()
-            policy.reset(dones)
-            actions, agent_infos = policy.get_actions(obses)
+            pro_policy.reset(dones)
+            adv_policy.reset(dones)
+            pro_actions, pro_agent_infos = pro_policy.get_actions(obses)
+            adv_actions, adv_agent_infos = adv_policy.get_actions(obses)
 
             policy_time += time.time() - t
             t = time.time()
-            next_obses, rewards, dones, env_infos = self.vec_env.step(actions)
+            next_obses, rewards, dones, env_infos = self.vec_env.step(pro_actions, adv_actions)
             env_time += time.time() - t
 
             t = time.time()
 
-            agent_infos = tensor_utils.split_tensor_dict_list(agent_infos)
+            pro_agent_infos = tensor_utils.split_tensor_dict_list(pro_agent_infos)
+            adv_agent_infos = tensor_utils.split_tensor_dict_list(adv_agent_infos)
             env_infos = tensor_utils.split_tensor_dict_list(env_infos)
             if env_infos is None:
                 env_infos = [dict() for _ in range(self.vec_env.num_envs)]
-            if agent_infos is None:
-                agent_infos = [dict() for _ in range(self.vec_env.num_envs)]
-            for idx, observation, action, reward, env_info, agent_info, done in zip(itertools.count(), obses, actions,
-                                                                                    rewards, env_infos, agent_infos,
+            if pro_agent_infos is None:
+                pro_agent_infos = [dict() for _ in range(self.vec_env.num_envs)]
+            if adv_agent_infos is None:
+                adv_agent_infos = [dict() for _ in range(self.vec_env.num_envs)]
+
+            for idx, observation, action, reward, env_info, pro_agent_info, adv_agent_info, done in zip(itertools.count(), obses, actions,
+                                                                                    rewards, env_infos, pro_agent_infos, adv_agent_infos,
                                                                                     dones):
                 if running_paths[idx] is None:
                     running_paths[idx] = dict(
                         observations=[],
-                        actions=[],
+                        pro_actions=[],
+                        adv_actions=[],
                         rewards=[],
                         env_infos=[],
-                        agent_infos=[],
+                        pro_agent_infos=[],
+                        adv_agent_infos=[],
                     )
                 running_paths[idx]["observations"].append(observation)
-                running_paths[idx]["actions"].append(action)
+                running_paths[idx]["pro_actions"].append(pro_action)
+                running_paths[idx]["adv_actions"].append(adv_action)
                 running_paths[idx]["rewards"].append(reward)
                 running_paths[idx]["env_infos"].append(env_info)
-                running_paths[idx]["agent_infos"].append(agent_info)
+                running_paths[idx]["pro_agent_infos"].append(pro_agent_info)
+                running_paths[idx]["adv_agent_infos"].append(adv_agent_info)
                 if done:
                     paths.append(dict(
                         observations=self.env_spec.observation_space.flatten_n(running_paths[idx]["observations"]),
-                        actions=self.env_spec.action_space.flatten_n(running_paths[idx]["actions"]),
+                        pro_actions=self.env_spec.action_space.flatten_n(running_paths[idx]["pro_actions"]),
+                        adv_actions=self.env_spec.action_space.flatten_n(running_paths[idx]["adv_actions"]),
                         rewards=tensor_utils.stack_tensor_list(running_paths[idx]["rewards"]),
                         env_infos=tensor_utils.stack_tensor_dict_list(running_paths[idx]["env_infos"]),
-                        agent_infos=tensor_utils.stack_tensor_dict_list(running_paths[idx]["agent_infos"]),
+                        pro_agent_infos=tensor_utils.stack_tensor_dict_list(running_paths[idx]["pro_agent_infos"]),
+                        adv_agent_infos=tensor_utils.stack_tensor_dict_list(running_paths[idx]["adv_agent_infos"]),
                     ))
                     n_samples += len(running_paths[idx]["rewards"])
                     running_paths[idx] = None
