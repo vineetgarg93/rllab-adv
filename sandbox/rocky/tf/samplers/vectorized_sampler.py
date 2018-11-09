@@ -79,8 +79,8 @@ class VectorizedSampler(BaseSampler):
             if adv_agent_infos is None:
                 adv_agent_infos = [dict() for _ in range(self.vec_env.num_envs)]
 
-            for idx, observation, action, reward, env_info, pro_agent_info, adv_agent_info, done in zip(itertools.count(), obses, actions,
-                                                                                    rewards, env_infos, pro_agent_infos, adv_agent_infos,
+            for idx, observation, pro_action, adv_action, reward, env_info, pro_agent_info, adv_agent_info, done in zip(itertools.count(), obses, pro_actions,
+                                                                                    adv_actions, rewards, env_infos, pro_agent_infos, adv_agent_infos,
                                                                                     dones):
                 if running_paths[idx] is None:
                     running_paths[idx] = dict(

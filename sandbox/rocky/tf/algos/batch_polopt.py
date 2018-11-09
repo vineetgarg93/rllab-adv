@@ -118,7 +118,7 @@ class BatchPolopt(RLAlgorithm):
         with tf.Session() as sess:
             self.rews = []
             sess.run(tf.initialize_all_variables())
-            self.start_worker()
+            # self.start_worker()
             start_time = time.time()
             for itr in range(self.start_itr, self.n_itr):
                 itr_start_time = time.time()
